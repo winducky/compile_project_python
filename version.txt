@@ -1,0 +1,44 @@
+# UTF-8 encoding
+# FileVersion: Major.Minor.Build.Revision
+# ProductVersion: Major.Minor.Build.Revision
+# FileDescription: Ứng dụng điều khiển máy ép đùn (Extruder)
+# LegalCopyright: Bản quyền
+# CompanyName: Tên công ty
+# ProductName: Tên sản phẩm
+# InternalName: Tên file nội bộ
+# OriginalFilename: Tên file gốc
+# Comments: Ghi chú thêm
+
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 0, 0, 8),
+    prodvers=(1, 0, 0, 8),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x4,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          u'040904b0',  # Vietnamese - Unicode
+          [
+            StringStruct(u'CompanyName', u'DANPV'),
+            StringStruct(u'FileDescription', u'Convert Py To Pyd Application'),
+            StringStruct(u'FileVersion', u'1.0.0.8'),
+            StringStruct(u'InternalName', u'ConvertApp'),
+            StringStruct(u'LegalCopyright', u'© 2026 Danpv. All rights reserved.'),
+            StringStruct(u'OriginalFilename', u'ConvertApp.exe'),
+            StringStruct(u'ProductName', u'Convert Py To Pyd Application'),
+            StringStruct(u'ProductVersion', u'1.0.0.8'),
+            StringStruct(u'Comments', u'Phần mềm chuyển đổi py sang pyd. By Phạm Văn Dần')
+          ]
+        )
+      ]
+    ),
+    VarFileInfo([VarStruct(u'Translation', [1033, 1200])])  # 1033 = English, 1200 = Unicode
+  ]
+)

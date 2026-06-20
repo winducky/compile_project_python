@@ -1,0 +1,25 @@
+{
+  "exclude_dirs": [
+    "venv",
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+    "alembic",
+    "migrations"
+  ],
+  "exclude_files": [
+    "setup.py"
+  ],
+  "exclude_extensions": [
+    "*.pyc",
+    "*.pyo",
+    "*.c",
+    "*.cpp",
+    "*.obj"
+  ],
+  "keep_py_files": [
+    "main.py"
+  ]
+}

@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['setup_ui.py'],
+    ['D:\\Venv\\Py_To_Pyd\\setup_ui.py'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -22,11 +22,11 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Tool_Convert_By_Dan',
+    name='Encode_Project_PY_App',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -35,4 +35,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    version='D:\\Venv\\Py_To_Pyd\\version.txt',
+    icon=['D:\\Venv\\Py_To_Pyd\\icon.ico'],
 )
