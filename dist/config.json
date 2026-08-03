@@ -2,6 +2,8 @@
   "exclude_dirs": [
     "venv",
     ".git",
+    ".opencode",
+    ".playwright-mcp",
     "__pycache__",
     "build",
     "dist",
@@ -21,5 +23,6 @@
   ],
   "keep_py_files": [
     "main.py"
-  ]
+  ],
+  "obfuscate_web": true
 }

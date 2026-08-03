@@ -1,0 +1,3 @@
+[      26ms] [LOG] Title updated to 'Hello, Python!' @ http://localhost:8899/main.js:0
+[      29ms] ReferenceError: updateTitle is not defined
+    at http://localhost:8899/:1:348

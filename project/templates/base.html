@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="vi" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Moonshine STT{% endblock %}</title>
+    <link rel="stylesheet" href="/static/plugins/bootstrap/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/plugins/bootstrap/icons/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/static/plugins/icon/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/static/plugins/aos/css/aos.css">
+    <link rel="stylesheet" href="/static/css/app.css">
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    {% include "components/navbar.html" %}
+
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% include "components/footer.html" %}
+
+    <script src="/static/plugins/jquery/js/jquery-3.6.0.min.js"></script>
+    <script src="/static/plugins/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/plugins/aos/js/aos.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/app.js"></script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

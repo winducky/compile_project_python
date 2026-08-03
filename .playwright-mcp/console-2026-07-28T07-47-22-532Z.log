@@ -1,0 +1,4 @@
+[   20063ms] [LOG] Title updated to 'Hello, Python!' @ http://localhost:8899/main.js:0
+[   20075ms] ReferenceError: updateTitle is not defined
+    at http://localhost:8899/:1:348
+[   20091ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://localhost:8899/favicon.ico:0

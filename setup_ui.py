@@ -8,9 +8,122 @@ import multiprocessing
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-WORKER_TEMPLATE = r'''import os, sys, shutil, json, argparse
+WORKER_TEMPLATE = r'''import os, sys, shutil, json, argparse, re
 from setuptools import setup, Extension
 from Cython.Build import cythonize
+
+# ─── JS Obfuscator ───────────────────────────────────────────────────────────
+
+def _js_encode_strings(code):
+    parts, i = [], 0
+    while i < len(code):
+        q = code[i]
+        if q in ("'", '"'):
+            s = i + 1
+            j = i + 1
+            while j < len(code):
+                if code[j] == "\\":
+                    j += 2
+                elif code[j] == q:
+                    parts.append((s, j))
+                    i = j + 1
+                    break
+                else:
+                    j += 1
+            else:
+                i = j
+        else:
+            i += 1
+    for s, e in reversed(parts):
+        code = code[:s] + "".join(f"\\u{ord(c):04x}" for c in code[s:e]) + code[e:]
+    return code
+
+
+def _js_encode_identifiers(code):
+    apis = [
+        "getElementById", "innerText", "createElement", "appendChild",
+        "addEventListener", "removeEventListener", "querySelector",
+        "querySelectorAll", "classList", "setAttribute", "getAttribute",
+        "removeAttribute", "textContent", "innerHTML",
+    ]
+    for name in apis:
+        code = code.replace(name, "".join(f"\\u{ord(c):04x}" for c in name))
+    return code
+
+
+def _html_entity_encode(text):
+    return "".join(f"&#{ord(c)};" for c in text)
+
+
+_JINJA_SPLIT = re.compile(r"(\{\{.*?\}\}|\{%.*?%\}|\{#.*?#\})", re.DOTALL)
+
+
+def _obfuscate_html_text(html):
+    pattern = re.compile(
+        r'(<script[^>]*>.*?</script\s*>|<style[^>]*>.*?</style\s*>)|>([^<]+)<',
+        re.DOTALL | re.IGNORECASE,
+    )
+    def replacer(m):
+        if m.group(1):
+            return m.group(1)
+        text = m.group(2)
+        parts = _JINJA_SPLIT.split(text)
+        encoded = []
+        for i, part in enumerate(parts):
+            if i % 2 == 0:
+                encoded.append(_html_entity_encode(part))
+            else:
+                encoded.append(part)
+        return ">" + "".join(encoded) + "<"
+
+    return pattern.sub(replacer, html)
+
+
+def obfuscate_html(content):
+    try:
+        import minify_html
+        content = minify_html.minify(content, minify_css=True, minify_js=True)
+    except ImportError:
+        pass
+    return _obfuscate_html_text(content)
+
+
+def minify_css(content):
+    try:
+        import rcssmin
+        return rcssmin.cssmin(content)
+    except ImportError:
+        return content
+
+
+def obfuscate_js(content):
+    try:
+        import rjsmin
+        content = rjsmin.jsmin(content)
+    except ImportError:
+        pass
+    content = _js_encode_strings(content)
+    content = _js_encode_identifiers(content)
+    junk = 'var _0x0d3d=["",""];(function(){var _0x0=!0,_0x1=!1;while(_0x0){if(_0x1){break}else{_0x1=!_0x1;continue}return}})();'
+    return content + junk
+
+
+def process_web_file(src_path, dst_path, obfuscate_web):
+    ext = os.path.splitext(src_path)[1].lower()
+    with open(src_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    if ext == ".html":
+        content = obfuscate_html(content) if obfuscate_web else content
+    elif ext == ".css":
+        content = minify_css(content)
+    elif ext == ".js":
+        content = obfuscate_js(content)
+    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+    with open(dst_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+# ─── Main ────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser()
@@ -19,6 +132,9 @@ def main():
     parser.add_argument("--dst")
     args = parser.parse_args()
 
+    args.src = os.path.abspath(args.src)
+    args.dst = os.path.abspath(args.dst)
+
     with open(args.config, "r") as f:
         cfg = json.load(f)
 
@@ -26,6 +142,8 @@ def main():
     exclude_files = cfg.get("exclude_files", [])
     exclude_exts = cfg.get("exclude_extensions", [])
     keep_py_files = cfg.get("keep_py_files", [])
+    keep_py_set = set(keep_py_files) | {"__init__.py", "__main__.py"}
+    obfuscate_web = cfg.get("obfuscate_web", True)
     temp_build = os.path.join(os.environ.get("TEMP", "/tmp"), "pyd_build_tmp")
 
     try:
@@ -33,36 +151,44 @@ def main():
             shutil.rmtree(temp_build)
         os.makedirs(temp_build)
 
+        # ── Step 1: Compile .py -> .pyd ──
         py_files = []
-        keep_py_set = set(keep_py_files)
         for root, dirs, files in os.walk(args.src):
             dirs[:] = [d for d in dirs if d not in exclude_dirs]
             for f in files:
-                if f.endswith(".py") and f not in exclude_files and f not in keep_py_set:
+                if (f.endswith(".py") and f not in exclude_files and f not in keep_py_set):
                     py_files.append(os.path.join(root, f))
 
         total = len(py_files)
         print(f"COUNT:{total}", flush=True)
         if total == 0:
-            print("DONE", flush=True)
-            return 0
-
-        extensions = []
-        for f in py_files:
-            rel_path = os.path.relpath(f, args.src)
-            module_name = os.path.splitext(rel_path)[0].replace(os.sep, ".")
-            extensions.append(Extension(module_name, [f]))
-
-        os.chdir(args.src)
-        setup(
-            ext_modules=cythonize(extensions, language_level="3", quiet=True),
-            script_args=["build_ext", "--build-lib", temp_build, "--build-temp", os.path.join(temp_build, "tmp")],
-        )
+            print("NO_PY_FILES", flush=True)
+        else:
+            src_abs = os.path.abspath(args.src)
+            os.chdir(src_abs)
+            pyd_count = 0
+            for f in py_files:
+                rel_path = os.path.relpath(f, src_abs)
+                module_name = os.path.splitext(rel_path)[0].replace(os.sep, ".")
+                if not module_name.replace(".", "").isidentifier():
+                    print(f"SKIP:{rel_path} (invalid module name)", flush=True)
+                    continue
+                try:
+                    ext = Extension(module_name, [f])
+                    setup(
+                        ext_modules=cythonize([ext], language_level="3", quiet=True),
+                        script_args=["build_ext", "--build-lib", temp_build, "--build-temp", os.path.join(temp_build, "tmp")],
+                    )
+                    print(f"PYD:{rel_path.replace('.py', '.pyd')}", flush=True)
+                except Exception as e:
+                    print(f"SKIP:{rel_path} ({e})", flush=True)
 
         print("COPY_RESOURCES", flush=True)
 
         if os.path.exists(args.dst):
             shutil.rmtree(args.dst)
+
+        web_exts = {".html", ".css", ".js"}
 
         def _ignore(src_dir, names):
             ignored = set()
@@ -72,16 +198,38 @@ def main():
                     if name in exclude_dirs:
                         ignored.add(name)
                 else:
+                    ext = os.path.splitext(name)[1].lower()
                     if name.endswith((".c", ".pyc")):
                         ignored.add(name)
                     elif any(name.endswith(e.lstrip("*.")) for e in exclude_exts if e.startswith("*")):
                         ignored.add(name)
                     elif name.endswith(".py") and name not in keep_py_set:
                         ignored.add(name)
+                    elif obfuscate_web and ext in web_exts:
+                        ignored.add(name)
             return ignored
 
         shutil.copytree(args.src, args.dst, ignore=_ignore)
 
+        # ── Step 2: Process web files ──
+        if obfuscate_web:
+            web_count = 0
+            for root, dirs, files in os.walk(args.src):
+                dirs[:] = [d for d in dirs if d not in exclude_dirs]
+                for f in files:
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in web_exts:
+                        src_file = os.path.join(root, f)
+                        rel = os.path.relpath(src_file, args.src)
+                        dst_file = os.path.join(args.dst, rel)
+                        process_web_file(src_file, dst_file, obfuscate_web)
+                        web_count += 1
+                        print(f"WEB:{rel}", flush=True)
+            if web_count > 0:
+                print(f"WEB_COUNT:{web_count}", flush=True)
+
+        # ── Step 3: Copy .pyd files ──
+        pyd_count = 0
         for root, dirs, files in os.walk(temp_build):
             for file in files:
                 if file.endswith(".pyd"):
@@ -92,6 +240,7 @@ def main():
                     if not os.path.exists(tgt_dir):
                         os.makedirs(tgt_dir)
                     shutil.copy2(src_pyd, os.path.join(tgt_dir, real_name))
+                    pyd_count += 1
                     print(f"PYD:{os.path.join(rel_dir, real_name)}", flush=True)
 
         print("DONE", flush=True)
@@ -120,23 +269,25 @@ if __name__ == "__main__":
 '''
 
 CONFIG_DEFAULT = {
-    "exclude_dirs": ["venv", ".git", "__pycache__", "build", "dist", "node_modules", "alembic", "migrations"],
+    "exclude_dirs": [".opencode", ".playwright-mcp", "venv", ".git", "__pycache__", "build", "dist", "node_modules", "alembic", "migrations"],
     "exclude_files": ["setup.py"],
     "exclude_extensions": ["*.pyc", "*.pyo", "*.c", "*.cpp", "*.obj"],
-    "keep_py_files": []
+    "keep_py_files": [],
+    "obfuscate_web": True,
 }
 
 
 class PyToPydConverter:
     def __init__(self, root):
         self.root = root
-        self.root.title("Tool Convert PY -> PYD - By Dần_VN")
-        self.root.geometry("650x300")
+        self.root.title("Tool Protect FastAPI Source Code - By Dần_VN")
+        self.root.geometry("650x320")
         self.root.resizable(False, False)
         self.root.configure(bg="#f0f4f8")
 
         self.source_dir = tk.StringVar()
         self.target_dir = tk.StringVar()
+        self.obfuscate_web = tk.BooleanVar(value=True)
         self.config = self._load_config()
 
         style = ttk.Style()
@@ -158,9 +309,9 @@ class PyToPydConverter:
         header = tk.Frame(root, bg="#1a365d", height=48)
         header.grid(row=0, column=0, columnspan=3, sticky="ew")
         header.grid_propagate(False)
-        tk.Label(header, text="PY → PYD CONVERTER", bg="#1a365d", fg="white",
+        tk.Label(header, text="Protect FastAPI Source Code", bg="#1a365d", fg="white",
                  font=("Segoe UI", 13, "bold")).pack(side=tk.LEFT, padx=16, pady=10)
-        tk.Label(header, text="v1.0 — By Dần_VN", bg="#1a365d", fg="#a0c4e8",
+        tk.Label(header, text="v2.0 — By Dần_VN", bg="#1a365d", fg="#a0c4e8",
                  font=("Segoe UI", 9)).pack(side=tk.RIGHT, padx=16, pady=10)
 
         main = tk.Frame(root, bg="#f0f4f8", padx=20, pady=16)
@@ -172,7 +323,7 @@ class PyToPydConverter:
         entry_w = 50
 
         row = 0
-        tk.Label(main, text="📁 Thư mục nguồn (Project):", anchor="w",
+        tk.Label(main, text="Thư mục nguồn (Project):", anchor="w",
                  width=lbl_w, bg="#f0f4f8", fg="#2d3748", font=("Segoe UI", 10)).grid(
                  row=row, column=0, padx=(0, 8), pady=8, sticky="w")
         tk.Entry(main, textvariable=self.source_dir, width=entry_w,
@@ -184,7 +335,7 @@ class PyToPydConverter:
                   padx=12, pady=1).grid(row=row, column=2, padx=(8, 0), pady=8)
 
         row = 1
-        tk.Label(main, text="📦 Thư mục đích (Encode):", anchor="w",
+        tk.Label(main, text="Thư mục đích (Encode):", anchor="w",
                  width=lbl_w, bg="#f0f4f8", fg="#2d3748", font=("Segoe UI", 10)).grid(
                  row=row, column=0, padx=(0, 8), pady=8, sticky="w")
         tk.Entry(main, textvariable=self.target_dir, width=entry_w,
@@ -195,11 +346,20 @@ class PyToPydConverter:
                   bg="#edf2f7", fg="#2d3748", font=("Segoe UI", 9, "bold"),
                   padx=12, pady=1).grid(row=row, column=2, padx=(8, 0), pady=8)
 
-        sep = ttk.Separator(main, orient="horizontal")
-        sep.grid(row=2, column=0, columnspan=3, sticky="ew", pady=12)
+        row = 2
+        self.obf_check = tk.Checkbutton(
+            main, text="Minify & obfuscate HTML/CSS/JS (bảo vệ mã nguồn web)",
+            variable=self.obfuscate_web, bg="#f0f4f8", fg="#2d3748",
+            font=("Segoe UI", 9), anchor="w",
+            selectcolor="#f0f4f8", activebackground="#f0f4f8"
+        )
+        self.obf_check.grid(row=row, column=0, columnspan=3, padx=(0, 0), pady=(4, 2), sticky="w")
 
-        row = 3
-        tk.Label(main, text="⏳ Trạng thái:", anchor="w", width=lbl_w,
+        sep = ttk.Separator(main, orient="horizontal")
+        sep.grid(row=3, column=0, columnspan=3, sticky="ew", pady=8)
+
+        row = 4
+        tk.Label(main, text="Trạng thái:", anchor="w", width=lbl_w,
                  bg="#f0f4f8", fg="#2d3748", font=("Segoe UI", 10)).grid(
                  row=row, column=0, padx=(0, 8), pady=(0, 4), sticky="w")
         self.progress = ttk.Progressbar(main, orient="horizontal",
@@ -207,21 +367,21 @@ class PyToPydConverter:
                                          style="Horizontal.TProgressbar")
         self.progress.grid(row=row, column=1, columnspan=2, padx=0, pady=(0, 4), sticky="ew")
 
-        row = 4
+        row = 5
         self.progress_label = tk.Label(main, text="Sẵn sàng", anchor="w",
                                         bg="#f0f4f8", fg="#718096",
                                         font=("Segoe UI", 9, "italic"))
         self.progress_label.grid(row=row, column=1, columnspan=2, padx=0, pady=(0, 0), sticky="w")
 
         sep2 = ttk.Separator(main, orient="horizontal")
-        sep2.grid(row=5, column=0, columnspan=3, sticky="ew", pady=12)
+        sep2.grid(row=6, column=0, columnspan=3, sticky="ew", pady=8)
 
-        row = 6
+        row = 7
         btn_frame = tk.Frame(main, bg="#f0f4f8")
         btn_frame.grid(row=row, column=0, columnspan=3, pady=(0, 4))
 
         self.btn_run = tk.Button(
-            btn_frame, text="▶  CHUYỂN ĐỔI", command=self.start_thread,
+            btn_frame, text="CHUYỂN ĐỔI", command=self.start_thread,
             cursor="hand2", relief="raised", bd=0,
             bg="#48bb78", fg="white", width=16,
             font=("Segoe UI", 10, "bold"), padx=8, pady=6
@@ -229,14 +389,14 @@ class PyToPydConverter:
         self.btn_run.pack(side=tk.LEFT, padx=6)
 
         tk.Button(
-            btn_frame, text="⚙  CẤU HÌNH", command=self.open_config,
+            btn_frame, text="CÀI ĐẶT", command=self.open_config,
             cursor="hand2", relief="raised", bd=0,
             bg="#ed8936", fg="white", width=13,
             font=("Segoe UI", 10, "bold"), padx=8, pady=6
         ).pack(side=tk.LEFT, padx=6)
 
         tk.Button(
-            btn_frame, text="✕  ĐÓNG", command=root.quit,
+            btn_frame, text="ĐÓNG", command=root.quit,
             cursor="hand2", relief="raised", bd=0,
             bg="#e53e3e", fg="white", width=13,
             font=("Segoe UI", 10, "bold"), padx=8, pady=6
@@ -262,12 +422,17 @@ class PyToPydConverter:
             json.dump(CONFIG_DEFAULT, f, indent=2, ensure_ascii=False)
         return dict(CONFIG_DEFAULT)
 
+    def _save_config(self):
+        cfg_path = self._config_path()
+        with open(cfg_path, 'w', encoding='utf-8') as f:
+            json.dump(self.config, f, indent=2, ensure_ascii=False)
+
     def open_config(self):
         cfg_path = self._config_path()
         if os.path.exists(cfg_path):
             os.startfile(cfg_path)
         else:
-            messagebox.showerror("Lỗi", "Không tìm thấy file cấu hình!")
+            messagebox.showerror("Loi", "Khong tim thay file cau hinh!")
 
     def browse_source(self):
         path = filedialog.askdirectory()
@@ -328,18 +493,18 @@ class PyToPydConverter:
         dst = self.target_dir.get()
 
         if not src or not dst:
-            self._ui_message("Cảnh báo", "Vui lòng chọn đầy đủ thư mục!", is_error=True)
+            self._ui_message("Canh bao", "Vui long chon day du thu muc!", is_error=True)
             return
 
         src = os.path.normpath(src)
         dst = os.path.normpath(dst)
 
         if src == dst:
-            self._ui_message("Cảnh báo", "Thư mục nguồn và đích không được trùng nhau!", is_error=True)
+            self._ui_message("Canh bao", "Thu muc nguon va dich khong duoc trung nhau!", is_error=True)
             return
 
         self.progress["value"] = 0
-        self._ui_update(enabled=False, status="Đang kiểm tra môi trường...", progress_val=0)
+        self._ui_update(enabled=False, status="Dang kiem tra moi truong...", progress_val=0)
         thread = threading.Thread(target=self._worker_thread, args=(src, dst))
         thread.daemon = True
         thread.start()
@@ -354,18 +519,22 @@ class PyToPydConverter:
 
             if not self._check_deps(python_exe):
                 self._ui_message(
-                    "Thiếu thư viện",
-                    "Vui lòng cài đặt Cython và setuptools:\n"
+                    "Thieu thu vien",
+                    "Vui long cai dat Cython va setuptools:\n"
                     f"  {python_exe} -m pip install cython setuptools",
                     is_error=True
                 )
                 return
+
+            self.config["obfuscate_web"] = self.obfuscate_web.get()
+            self._save_config()
 
             cfg_data = {
                 'exclude_dirs': self.config.get('exclude_dirs', CONFIG_DEFAULT['exclude_dirs']),
                 'exclude_files': self.config.get('exclude_files', CONFIG_DEFAULT['exclude_files']),
                 'exclude_extensions': self.config.get('exclude_extensions', CONFIG_DEFAULT['exclude_extensions']),
                 'keep_py_files': self.config.get('keep_py_files', CONFIG_DEFAULT['keep_py_files']),
+                'obfuscate_web': self.config.get('obfuscate_web', True),
             }
             cfg_path = os.path.join(tempfile.gettempdir(), 'pyd_config.json')
             with open(cfg_path, 'w', encoding='utf-8') as f:
@@ -375,7 +544,7 @@ class PyToPydConverter:
             with open(worker_path, 'w', encoding='utf-8') as f:
                 f.write(WORKER_TEMPLATE)
 
-            self._ui_update(status="Đang biên dịch...", progress_val=10)
+            self._ui_update(status="Dang bien dich...", progress_val=10)
 
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -396,8 +565,10 @@ class PyToPydConverter:
 
             file_count = 0
             pyd_count = 0
+            web_count = 0
             done = False
             error_msg = None
+            no_py = False
 
             for line in proc.stdout:
                 line = line.strip()
@@ -407,29 +578,38 @@ class PyToPydConverter:
                 if line.startswith('COUNT:'):
                     file_count = int(line.split(':', 1)[1])
                     if file_count == 0:
-                        done = True
-                        self._ui_message("Thông báo", "Không có file .py nào để biên dịch!")
-                        break
-                    self._ui_update(status=f"Đã tìm thấy {file_count} file .py", progress_val=20)
+                        no_py = True
+                    else:
+                        self._ui_update(status=f"Da tim thay {file_count} file .py", progress_val=15)
 
                 elif line.startswith('PYD:'):
                     pyd_count += 1
-                    pct = 20 + int((pyd_count / file_count) * 60) if file_count else 20
+                    pct = 20 + int((pyd_count / file_count) * 40) if file_count else 20
                     self._ui_update(
-                        status=f"Đang biên dịch: {pyd_count}/{file_count}",
+                        status=f"Dang bien dich: {pyd_count}/{file_count}",
                         progress_val=pct
                     )
 
+                elif line.startswith('WEB:'):
+                    web_count += 1
+
+                elif line.startswith('WEB_COUNT:'):
+                    wc = line.split(':', 1)[1]
+                    self._ui_update(status=f"Dang ma hoa: {wc} file html/css/js", progress_val=75)
+
                 elif line == 'COPY_RESOURCES':
-                    self._ui_update(status="Đang sao chép tài nguyên...", progress_val=85)
+                    self._ui_update(status="Dang sao chep tai nguyen...", progress_val=60)
 
                 elif line.startswith('CLEANUP:'):
                     cleaned = line.split(':', 1)[1]
-                    self._ui_update(status=f"Đã dọn dẹp {cleaned} file .c", progress_val=95)
+                    self._ui_update(status=f"Da don dep {cleaned} file .c", progress_val=95)
+
+                elif line == 'NO_PY_FILES':
+                    no_py = True
 
                 elif line == 'DONE':
                     done = True
-                    self._ui_update(status="Hoàn tất!", progress_val=100)
+                    self._ui_update(status="Hoan tat!", progress_val=100)
                     break
 
                 elif line.startswith('ERROR:'):
@@ -440,19 +620,22 @@ class PyToPydConverter:
             proc.wait()
             stderr_text = ''.join(stderr_lines).strip()
 
-            if done and file_count == 0:
-                pass  # message already sent
+            if done and no_py and web_count == 0:
+                self._ui_message("Thong bao", "Khong co file .py va web nao de xu ly!")
+            elif done and no_py and web_count > 0:
+                self._ui_message("Thanh cong", f"Da ma hoa {web_count} file html/css/js.")
             elif done and not error_msg:
-                self._ui_message("Thành công", f"Đã chuyển đổi xong!\n{pyd_count} file .pyd")
+                extra = f"\nDa ma hoa {web_count} file html/css/js" if web_count else ""
+                self._ui_message("Thanh cong", f"Da chuyen doi xong!\n{pyd_count} file .pyd{extra}")
             elif error_msg:
-                self._ui_message("Lỗi biên dịch", error_msg, is_error=True)
+                self._ui_message("Loi bien dich", error_msg, is_error=True)
             elif stderr_text:
-                self._ui_message("Lỗi biên dịch", stderr_text[:2000], is_error=True)
+                self._ui_message("Loi bien dich", stderr_text[:2000], is_error=True)
             elif not done:
-                self._ui_update(status="Thất bại - không rõ nguyên nhân", progress_val=0)
+                self._ui_update(status="That bai - khong ro nguyen nhan", progress_val=0)
 
         except Exception as e:
-            self._ui_message("Lỗi hệ thống", str(e), is_error=True)
+            self._ui_message("Loi he thong", str(e), is_error=True)
 
         finally:
             if proc and proc.poll() is None:

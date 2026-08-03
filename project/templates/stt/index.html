@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+{% block title %}Moonshine STT - Chuyển giọng nói thành văn bản{% endblock %}
+
+{% block content %}
+<section class="hero-section py-5">
+    <div class="container">
+        <div class="row justify-content-center text-center mb-5" data-aos="fade-up">
+            <div class="col-lg-8">
+                <div class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-3 py-2 mb-3 rounded-pill">
+                    <i class="bi bi-mic me-1"></i> Vietnamese Speech-to-Text
+                </div>
+                <h1 class="display-5 fw-bold mb-3">
+                    Chuyển giọng nói <span class="text-gradient">thành văn bản</span>
+                </h1>
+                <p class="lead text-muted mb-0">
+                    Nhận dạng giọng nói tiếng Việt với Moonshine Voice, hoạt động hoàn toàn offline.
+                </p>
+            </div>
+        </div>
+
+        <div class="row justify-content-center" data-aos="fade-up" data-aos-delay="100">
+            <div class="col-lg-8 col-xl-7">
+                <div class="card border-0 shadow-lg glass-card">
+                    <div class="card-body p-4 p-md-5">
+
+                        <div class="upload-area" id="uploadArea">
+                            <div class="upload-icon-wrapper">
+                                <i class="bi bi-cloud-arrow-up upload-icon" id="uploadIcon"></i>
+                                <i class="bi bi-check-circle-fill upload-icon file-check" id="fileCheckIcon"></i>
+                            </div>
+                            <h6 class="mb-2 fw-semibold" id="uploadTitle">Kéo thả file audio vào đây</h6>
+                            <p class="text-muted small mb-0" id="uploadSubtitle">hoặc click để chọn file</p>
+                            <p class="text-muted mt-2 mb-0" style="font-size:0.75rem;">
+                                <i class="bi bi-file-earmark-music me-1"></i>Hỗ trợ: WAV, MP3, OGG, FLAC, M4A
+                                <span class="mx-2">|</span>
+                                <i class="bi bi-hdd me-1"></i>Tối đa 50MB
+                            </p>
+                            <div class="file-info mt-3" id="fileInfo" style="display:none;">
+                                <div class="d-flex align-items-center justify-content-center gap-2">
+                                    <i class="bi bi-file-earmark-check text-success"></i>
+                                    <span class="fw-medium" id="fileName"></span>
+                                    <span class="badge bg-success bg-opacity-10 text-success" id="fileSize"></span>
+                                </div>
+                            </div>
+                        </div>
+                        <input type="file" id="fileInput" accept="audio/*" class="d-none">
+
+                        <div class="mb-3">
+                            <label for="apiKey" class="form-label small fw-medium text-muted">
+                                <i class="bi bi-key me-1"></i>API Key
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-transparent border-end-0">
+                                    <i class="bi bi-key text-muted"></i>
+                                </span>
+                                <input type="text" id="apiKey" class="form-control border-start-0 ps-0"
+                                       value="moonshine-stt-key-2024" placeholder="Nhập API Key">
+                            </div>
+                        </div>
+
+                        <div class="d-flex gap-3 mt-4">
+                            <button class="btn btn-primary flex-grow-1 btn-lg" id="transcribeBtn" disabled>
+                                <i class="bi bi-mic me-2"></i>
+                                <span class="btn-text">Chuyển đổi</span>
+                                <span class="spinner-border spinner-border-sm d-none" id="btnSpinner"></span>
+                            </button>
+                            <button class="btn btn-outline-secondary btn-lg" id="clearBtn" disabled>
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row justify-content-center mt-4" data-aos="fade-up" data-aos-delay="150">
+            <div class="col-lg-8 col-xl-7">
+                <div class="alert alert-danger d-none" id="errorMessage" role="alert">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <span id="errorText"></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="row justify-content-center mt-4 d-none" id="resultSection" data-aos="fade-up" data-aos-delay="200">
+            <div class="col-lg-8 col-xl-7">
+                <div class="card border-0 shadow-lg glass-card">
+                    <div class="card-body p-4 p-md-5">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <h5 class="fw-bold mb-0">
+                                <i class="bi bi-check-circle-fill text-success me-2"></i>Kết quả
+                            </h5>
+                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-3 py-2">
+                                <i class="bi bi-translate me-1"></i>vi
+                            </span>
+                        </div>
+                        <div class="result-text p-3 mb-3" id="resultText">
+                            <span class="typing-cursor">|</span>
+                        </div>
+                        <div class="d-flex gap-3 text-muted small" id="resultMeta">
+                            <span><i class="bi bi-clock me-1"></i><span id="resultDuration">0s</span></span>
+                            <span><i class="bi bi-text-paragraph me-1"></i><span id="resultLines">0 dòng</span></span>
+                        </div>
+                        <div class="mt-3">
+                            <button class="btn btn-sm btn-outline-secondary" id="copyBtn">
+                                <i class="bi bi-clipboard me-1"></i>Sao chép
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row justify-content-center mt-5 pt-3" data-aos="fade-up" data-aos-delay="250">
+            <div class="col-lg-10">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <div class="card border-0 h-100 text-center p-4 feature-card">
+                            <div class="feature-icon mx-auto mb-3">
+                                <i class="bi bi-mic"></i>
+                            </div>
+                            <h6 class="fw-semibold">Nhận dạng chính xác</h6>
+                            <p class="small text-muted mb-0">Mô hình Moonshine base-vi được tối ưu cho tiếng Việt</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-0 h-100 text-center p-4 feature-card">
+                            <div class="feature-icon mx-auto mb-3">
+                                <i class="bi bi-wifi-off"></i>
+                            </div>
+                            <h6 class="fw-semibold">Không cần Internet</h6>
+                            <p class="small text-muted mb-0">Hoạt động hoàn toàn offline, bảo mật dữ liệu</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-0 h-100 text-center p-4 feature-card">
+                            <div class="feature-icon mx-auto mb-3">
+                                <i class="bi bi-file-earmark-music"></i>
+                            </div>
+                            <h6 class="fw-semibold">Đa định dạng</h6>
+                            <p class="small text-muted mb-0">Hỗ trợ WAV, MP3, OGG, FLAC, M4A</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/app.js"></script>
+<script>
+AOS.init({
+    duration: 600,
+    once: true,
+    offset: 50,
+});
+
+const uploadArea = document.getElementById('uploadArea');
+const fileInput = document.getElementById('fileInput');
+const uploadTitle = document.getElementById('uploadTitle');
+const uploadSubtitle = document.getElementById('uploadSubtitle');
+const uploadIcon = document.getElementById('uploadIcon');
+const fileCheckIcon = document.getElementById('fileCheckIcon');
+const fileInfo = document.getElementById('fileInfo');
+const fileName = document.getElementById('fileName');
+const fileSize = document.getElementById('fileSize');
+const transcribeBtn = document.getElementById('transcribeBtn');
+const btnSpinner = document.getElementById('btnSpinner');
+const clearBtn = document.getElementById('clearBtn');
+const apiKeyInput = document.getElementById('apiKey');
+const errorMessage = document.getElementById('errorMessage');
+const errorText = document.getElementById('errorText');
+const resultSection = document.getElementById('resultSection');
+const resultText = document.getElementById('resultText');
+const resultDuration = document.getElementById('resultDuration');
+const resultLines = document.getElementById('resultLines');
+const copyBtn = document.getElementById('copyBtn');
+
+let selectedFile = null;
+
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+function handleFile(file) {
+    selectedFile = file;
+    fileName.textContent = file.name;
+    fileSize.textContent = formatSize(file.size);
+    uploadTitle.textContent = 'Đã chọn file';
+    uploadSubtitle.textContent = 'Nhấn "Chuyển đổi" để bắt đầu';
+    uploadIcon.style.display = 'none';
+    fileCheckIcon.style.display = 'block';
+    fileInfo.style.display = 'block';
+    uploadArea.classList.add('has-file');
+    transcribeBtn.disabled = false;
+    clearBtn.disabled = false;
+    errorMessage.classList.add('d-none');
+}
+
+uploadArea.addEventListener('click', () => fileInput.click());
+
+uploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+});
+
+uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragover');
+});
+
+uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    if (e.dataTransfer.files.length > 0) {
+        handleFile(e.dataTransfer.files[0]);
+    }
+});
+
+fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+        handleFile(fileInput.files[0]);
+    }
+});
+
+clearBtn.addEventListener('click', () => {
+    selectedFile = null;
+    fileInput.value = '';
+    uploadTitle.textContent = 'Kéo thả file audio vào đây';
+    uploadSubtitle.textContent = 'hoặc click để chọn file';
+    uploadIcon.style.display = 'block';
+    fileCheckIcon.style.display = 'none';
+    fileInfo.style.display = 'none';
+    uploadArea.classList.remove('has-file');
+    transcribeBtn.disabled = true;
+    clearBtn.disabled = true;
+    resultSection.classList.add('d-none');
+    errorMessage.classList.add('d-none');
+});
+
+transcribeBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    const btnText = transcribeBtn.querySelector('.btn-text');
+    btnText.textContent = 'Đang xử lý...';
+    btnSpinner.classList.remove('d-none');
+    transcribeBtn.disabled = true;
+    errorMessage.classList.add('d-none');
+    resultSection.classList.add('d-none');
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+        const response = await fetch('/api/v1/stt/transcribe', {
+            method: 'POST',
+            headers: { 'x-api-key': apiKeyInput.value },
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || 'Lỗi không xác định');
+        }
+
+        const data = await response.json();
+        resultText.textContent = data.text || '(không có kết quả)';
+        resultDuration.textContent = data.duration_seconds.toFixed(1) + 's';
+        resultLines.textContent = data.lines.length + ' dòng';
+        resultSection.classList.remove('d-none');
+
+        setTimeout(() => {
+            resultSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 100);
+    } catch (err) {
+        errorText.textContent = err.message;
+        errorMessage.classList.remove('d-none');
+    } finally {
+        btnText.textContent = 'Chuyển đổi';
+        btnSpinner.classList.add('d-none');
+        transcribeBtn.disabled = false;
+    }
+});
+
+copyBtn.addEventListener('click', async () => {
+    const text = resultText.textContent.replace('|', '').trim();
+    if (!text) return;
+    try {
+        await navigator.clipboard.writeText(text);
+        const origIcon = copyBtn.innerHTML;
+        copyBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Đã sao chép';
+        setTimeout(() => { copyBtn.innerHTML = origIcon; }, 2000);
+    } catch {
+        // fallback
+    }
+});
+</script>
+{% endblock %}
